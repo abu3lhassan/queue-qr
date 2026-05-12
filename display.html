@@ -1,0 +1,128 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>الشاشة</title><link rel="stylesheet" href="style.css"></head>
+<body class="tv">
+<main class="wrap"><section class="card" id="screen">
+  <div class="brand"><img class="logo" id="logo" alt="logo"><div class="brand-name" id="brandName"></div></div>
+  <p style="font-size:34px;margin-bottom:0">الرقم الآن هو</p>
+  <div class="number" id="currentNumber">--</div>
+  <div class="person-name" id="currentName">--</div>
+  <div class="counter-display" id="currentCounter">كاونتر --</div>
+  <div class="status called">يرجى التوجه إلى نقطة الخدمة</div>
+  <button class="secondary" id="soundBtn">تفعيل صوت النداء</button>
+
+<div class="credit">
+  <span class="icon">👨‍💻</span>
+  تم التطوير بواسطة <strong>المهندس علي الحنابي</strong>
+</div>
+</section></main>
+
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/11.10.0/firebase-app.js";
+import { getDatabase, ref, onValue, get } from "https://www.gstatic.com/firebasejs/11.10.0/firebase-database.js";
+import { firebaseConfig, BRAND } from "./firebase-config.js";
+
+const app = initializeApp(firebaseConfig);
+const db = getDatabase(app);
+
+const logoEl = document.getElementById("logo");
+const brandNameEl = document.getElementById("brandName");
+const currentNumberEl = document.getElementById("currentNumber");
+const currentNameEl = document.getElementById("currentName");
+const currentCounterEl = document.getElementById("currentCounter");
+const soundBtnEl = document.getElementById("soundBtn");
+const screenEl = document.getElementById("screen");
+
+logoEl.src = BRAND.logoUrl;
+brandNameEl.textContent = BRAND.name;
+
+let soundOn = false;
+let lastCallId = null;
+
+soundBtnEl.onclick = () => {
+  soundOn = true;
+  soundBtnEl.textContent = "الصوت مفعل ✅";
+  beep();
+  setTimeout(() => speak("تم تفعيل صوت النداء"), 400);
+};
+
+function beep() {
+  if (!soundOn) return;
+  try {
+    const AudioContext = window.AudioContext || window.webkitAudioContext;
+    const ctx = new AudioContext();
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+
+    osc.type = "sine";
+    osc.frequency.value = 880;
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+
+    gain.gain.setValueAtTime(0.001, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.35, ctx.currentTime + 0.03);
+    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.45);
+
+    osc.start(ctx.currentTime);
+    osc.stop(ctx.currentTime + 0.5);
+  } catch(e) {
+    console.error(e);
+  }
+}
+
+function speak(text) {
+  if (!soundOn) return;
+  try {
+    speechSynthesis.cancel();
+    const msg = new SpeechSynthesisUtterance(text);
+    msg.lang = "ar-SA";
+    msg.rate = 0.85;
+    msg.pitch = 1;
+    speechSynthesis.speak(msg);
+  } catch(e) {
+    console.error(e);
+  }
+}
+
+onValue(ref(db, "current"), async snap => {
+  const data = snap.val() || {};
+  const n = Number(data.number || 0);
+  let name = data.name || "";
+  const counter = Number(data.counter || 1);
+
+  currentNumberEl.textContent = n || "--";
+
+  if (n && !name) {
+    try {
+      const t = await get(ref(db, "tickets/" + n));
+      name = t.exists() && t.val().name ? t.val().name : "";
+    } catch(e) {}
+  }
+
+  currentNameEl.textContent = name || "--";
+  if (currentCounterEl) currentCounterEl.textContent = n ? "كاونتر " + counter : "كاونتر --";
+
+  const callId = data.callId || data.updatedAt || null;
+
+  if (callId && callId !== lastCallId && n > 0) {
+    if (screenEl) {
+      screenEl.classList.remove("flash");
+      void screenEl.offsetWidth;
+      screenEl.classList.add("flash");
+    }
+
+    beep();
+
+    setTimeout(() => {
+      const text = name
+        ? name + "، الرقم " + n + "، كاونتر " + counter + "، تفضل الآن"
+        : "الرقم " + n + "، كاونتر " + counter + "، تفضل الآن";
+      speak(text);
+    }, 550);
+  }
+
+  lastCallId = callId;
+});
+</script>
+</body>
+</html>

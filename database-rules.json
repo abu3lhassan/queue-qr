@@ -1,0 +1,38 @@
+{
+  "rules": {
+    ".read": false,
+    ".write": false,
+    "settings": {
+      ".read": true,
+      ".write": "auth != null && auth.token.email == 'ali.h.alhenabi@gmail.com'",
+      "enabledCounters": {
+        ".validate": "newData.isNumber() && newData.val() >= 1 && newData.val() <= 4"
+      }
+    },
+    "counter": {
+      ".read": true,
+      "lastIssued": {
+        ".write": true,
+        ".validate": "newData.isNumber()"
+      },
+      "lastCalled": {
+        ".write": "auth != null",
+        ".validate": "newData.isNumber()"
+      }
+    },
+    "tickets": {
+      ".read": true,
+      "$ticketId": {
+        ".write": "(!data.exists() && newData.exists()) || auth != null"
+      }
+    },
+    "current": {
+      ".read": true,
+      ".write": "auth != null"
+    },
+    "counters": {
+      ".read": true,
+      ".write": "auth != null"
+    }
+  }
+}

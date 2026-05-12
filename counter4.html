@@ -1,0 +1,239 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>كاونتر 4</title><link rel="stylesheet" href="style.css"></head>
+<body>
+<main class="wrap"><section class="card">
+  <div class="brand"><img class="logo" id="logo" alt="logo"><div class="brand-name" id="brandName"></div></div>
+
+  <div id="loginBox">
+    <h1>كاونتر 4</h1>
+    <p>تسجيل دخول الموظف</p>
+    <input id="email" type="email" placeholder="البريد الإلكتروني">
+    <input id="password" type="password" placeholder="كلمة المرور">
+    <button id="loginBtn">دخول</button>
+    <div id="loginStatus" class="status error" style="display:none"></div>
+    <div class="auth-note">يدخل الموظف بحساب Firebase Authentication.</div>
+    <div class="credit">
+  <span class="icon">👨‍💻</span>
+  تم التطوير بواسطة <strong>المهندس علي الحنابي</strong>
+</div>
+  </div>
+
+  <div id="adminBox" style="display:none">
+    <p>صفحة استدعاء خاصة بكاونتر 4</p>
+    <button class="logout" id="logoutBtn">تسجيل خروج</button>
+
+    <div id="disabledBox" class="counter-disabled-message" style="display:none">
+      هذا الكاونتر معطل من قبل مدير النظام
+    </div>
+
+    <div id="counterControls">
+      <div class="ticket">
+        <div class="label">كاونتر 4</div>
+        <div class="number" id="currentNumber">--</div>
+        <div class="person-name" id="currentName">--</div>
+      </div>
+
+      <button id="nextBtn">التالي</button>
+      <button class="secondary" id="repeatBtn">إعادة النداء</button>
+      <div id="status" class="status">جاهز</div>
+    </div>
+
+    <div class="credit">
+  <span class="icon">👨‍💻</span>
+  تم التطوير بواسطة <strong>المهندس علي الحنابي</strong>
+</div>
+  </div>
+</section></main>
+
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/11.10.0/firebase-app.js";
+import { getAuth, signInWithEmailAndPassword, onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/11.10.0/firebase-auth.js";
+import { getDatabase, ref, get, update, onValue, runTransaction } from "https://www.gstatic.com/firebasejs/11.10.0/firebase-database.js";
+import { firebaseConfig, BRAND } from "./firebase-config.js";
+
+const COUNTER_NUMBER = 4;
+const app = initializeApp(firebaseConfig);
+const auth = getAuth(app);
+const db = getDatabase(app);
+
+const logoEl = document.getElementById("logo");
+const brandNameEl = document.getElementById("brandName");
+const loginBoxEl = document.getElementById("loginBox");
+const adminBoxEl = document.getElementById("adminBox");
+const emailEl = document.getElementById("email");
+const passwordEl = document.getElementById("password");
+const loginBtnEl = document.getElementById("loginBtn");
+const logoutBtnEl = document.getElementById("logoutBtn");
+const loginStatusEl = document.getElementById("loginStatus");
+const currentNumberEl = document.getElementById("currentNumber");
+const currentNameEl = document.getElementById("currentName");
+const nextBtnEl = document.getElementById("nextBtn");
+const repeatBtnEl = document.getElementById("repeatBtn");
+const statusEl = document.getElementById("status");
+const disabledBoxEl = document.getElementById("disabledBox");
+const counterControlsEl = document.getElementById("counterControls");
+
+let enabledCounters = 1;
+let lastGlobalCurrent = {};
+
+logoEl.src = BRAND.logoUrl;
+brandNameEl.textContent = BRAND.name;
+
+loginBtnEl.onclick = async () => {
+  loginStatusEl.style.display = "none";
+  try {
+    await signInWithEmailAndPassword(auth, emailEl.value.trim(), passwordEl.value);
+  } catch (e) {
+    loginStatusEl.style.display = "block";
+    loginStatusEl.textContent = "فشل تسجيل الدخول. تأكد من البريد وكلمة المرور.";
+  }
+};
+
+passwordEl.addEventListener("keydown", event => {
+  if (event.key === "Enter") loginBtnEl.click();
+});
+
+logoutBtnEl.onclick = () => signOut(auth);
+
+onAuthStateChanged(auth, user => {
+  if (user) {
+    loginBoxEl.style.display = "none";
+    adminBoxEl.style.display = "block";
+    applyEnabledState();
+  } else {
+    loginBoxEl.style.display = "block";
+    adminBoxEl.style.display = "none";
+  }
+});
+
+function applyEnabledState() {
+  const enabled = COUNTER_NUMBER <= enabledCounters;
+  disabledBoxEl.style.display = enabled ? "none" : "block";
+  counterControlsEl.style.display = enabled ? "block" : "none";
+}
+
+onValue(ref(db, "settings/enabledCounters"), snap => {
+  enabledCounters = Number(snap.val() || 1);
+  if (enabledCounters < 1) enabledCounters = 1;
+  if (enabledCounters > 4) enabledCounters = 4;
+  applyEnabledState();
+});
+
+onValue(ref(db, "current"), snap => {
+  lastGlobalCurrent = snap.val() || {};
+  refreshCurrentView();
+});
+
+async function refreshCurrentView() {
+  const currentCounter = Number(lastGlobalCurrent.counter || 1);
+  const number = Number(lastGlobalCurrent.number || 0);
+
+  if (currentCounter !== COUNTER_NUMBER || !number) {
+    currentNumberEl.textContent = "--";
+    currentNameEl.textContent = "--";
+    return;
+  }
+
+  currentNumberEl.textContent = number;
+
+  if (lastGlobalCurrent.name) {
+    currentNameEl.textContent = lastGlobalCurrent.name;
+    return;
+  }
+
+  const ticketSnap = await get(ref(db, "tickets/" + number));
+  currentNameEl.textContent = ticketSnap.exists() && ticketSnap.val().name ? ticketSnap.val().name : "--";
+}
+
+async function claimNextWaitingTicket() {
+  const counterRef = ref(db, "counter/lastCalled");
+  const result = await runTransaction(counterRef, current => {
+    current = current || 0;
+    return current + 1;
+  });
+  if (!result.committed || !result.snapshot.val()) return null;
+  return Number(result.snapshot.val());
+}
+
+nextBtnEl.onclick = async () => {
+  if (!auth.currentUser) {
+    statusEl.textContent = "يرجى تسجيل الدخول";
+    return;
+  }
+
+  if (COUNTER_NUMBER > enabledCounters) {
+    statusEl.textContent = "هذا الكاونتر معطل من قبل مدير النظام";
+    return;
+  }
+
+  const lastIssuedSnap = await get(ref(db, "counter/lastIssued"));
+  const lastIssued = Number(lastIssuedSnap.val() || 0);
+
+  let next = await claimNextWaitingTicket();
+
+  if (!next || next > lastIssued) {
+    statusEl.textContent = "ما فيه أرقام في الانتظار";
+    return;
+  }
+
+  let ticketSnap = await get(ref(db, "tickets/" + next));
+
+  while ((!ticketSnap.exists() || ticketSnap.val().status === "called") && next < lastIssued) {
+    next = await claimNextWaitingTicket();
+    ticketSnap = await get(ref(db, "tickets/" + next));
+  }
+
+  if (!ticketSnap.exists() || next > lastIssued) {
+    statusEl.textContent = "ما فيه أرقام في الانتظار";
+    return;
+  }
+
+  const name = ticketSnap.val().name || "";
+  const now = Date.now();
+
+  await update(ref(db), {
+    ["current/number"]: next,
+    ["current/name"]: name,
+    ["current/counter"]: COUNTER_NUMBER,
+    ["current/updatedAt"]: now,
+    ["current/callId"]: now,
+    ["counters/" + COUNTER_NUMBER + "/number"]: next,
+    ["counters/" + COUNTER_NUMBER + "/name"]: name,
+    ["counters/" + COUNTER_NUMBER + "/updatedAt"]: now,
+    ["tickets/" + next + "/status"]: "called",
+    ["tickets/" + next + "/counter"]: COUNTER_NUMBER,
+    ["tickets/" + next + "/calledAt"]: now
+  });
+
+  statusEl.textContent = "تم نداء " + (name ? name + " - " : "") + "رقم " + next + " على كاونتر " + COUNTER_NUMBER;
+};
+
+repeatBtnEl.onclick = async () => {
+  if (!auth.currentUser) {
+    statusEl.textContent = "يرجى تسجيل الدخول";
+    return;
+  }
+
+  if (COUNTER_NUMBER > enabledCounters) {
+    statusEl.textContent = "هذا الكاونتر معطل من قبل مدير النظام";
+    return;
+  }
+
+  const snap = await get(ref(db, "current"));
+  const data = snap.val() || {};
+  const number = Number(data.number || 0);
+  const currentCounter = Number(data.counter || 1);
+
+  if (!number || currentCounter !== COUNTER_NUMBER) {
+    statusEl.textContent = "لا يوجد رقم لإعادة ندائه على هذا الكاونتر";
+    return;
+  }
+
+  const now = Date.now();
+  await update(ref(db, "current"), { updatedAt: now, callId: now });
+  statusEl.textContent = "تمت إعادة نداء الرقم " + number;
+};
+</script>
+</body>
+</html>

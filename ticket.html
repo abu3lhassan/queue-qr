@@ -1,0 +1,172 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>رقمك</title><link rel="stylesheet" href="style.css"></head>
+<body>
+<main class="wrap"><section class="card">
+  <div class="brand"><img class="logo" id="logo" alt="logo"><div class="brand-name" id="brandName"></div></div>
+  <h1>خذ رقمك</h1>
+  <p id="intro">اكتب اسمك الثلاثي ثم اضغط خذ رقم. خلك فاتح الصفحة إلى أن يأتي دورك.</p>
+  <input id="nameInput" type="text" placeholder="الاسم الثلاثي" autocomplete="name">
+  <div id="ticketBox" class="ticket" style="display:none"><div class="label">رقمك</div><div class="number" id="myNumber">--</div><div class="person-name" id="myName"></div></div>
+  <button id="takeBtn">خذ رقم</button>
+  <div id="status" class="status waiting" style="display:none">بانتظار دورك...</div>
+  <div id="info" class="info" style="display:none"><div><b id="ahead">--</b><span>قبلك</span></div><div><b id="current">--</b><span>الرقم الحالي</span></div></div>
+
+<div class="credit">
+  <span class="icon">👨‍💻</span>
+  تم التطوير بواسطة <strong>المهندس علي الحنابي</strong>
+</div>
+</section></main>
+
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/11.10.0/firebase-app.js";
+import { getDatabase, ref, runTransaction, set, onValue, get } from "https://www.gstatic.com/firebasejs/11.10.0/firebase-database.js";
+import { firebaseConfig, BRAND } from "./firebase-config.js";
+
+const app = initializeApp(firebaseConfig);
+const db = getDatabase(app);
+
+const logo = document.getElementById("logo");
+const brandName = document.getElementById("brandName");
+const nameInput = document.getElementById("nameInput");
+const takeBtn = document.getElementById("takeBtn");
+const ticketBox = document.getElementById("ticketBox");
+const myNumberEl = document.getElementById("myNumber");
+const myNameEl = document.getElementById("myName");
+const statusEl = document.getElementById("status");
+const info = document.getElementById("info");
+const aheadEl = document.getElementById("ahead");
+const currentEl = document.getElementById("current");
+const intro = document.getElementById("intro");
+
+logo.src = BRAND.logoUrl;
+brandName.textContent = BRAND.name;
+
+nameInput.value = localStorage.getItem("queue_name") || "";
+
+let myNumber = localStorage.getItem("queue_number");
+if (myNumber) showTicket(Number(myNumber));
+
+function resetLocalTicket() {
+  localStorage.removeItem("queue_number");
+  localStorage.removeItem("queue_name");
+  location.reload();
+}
+
+function isTripleName(name){
+  const parts = name.trim().split(/\s+/).filter(Boolean);
+  return parts.length >= 3 && parts.every(p => p.length >= 2);
+}
+
+takeBtn.onclick = async () => {
+  if (localStorage.getItem("queue_number")) {
+    return showTicket(Number(localStorage.getItem("queue_number")));
+  }
+
+  const fullName = nameInput.value.trim().replace(/\s+/g, " ");
+
+  if (!isTripleName(fullName)) {
+    statusEl.style.display = "block";
+    statusEl.className = "status error";
+    statusEl.textContent = "فضلاً اكتب الاسم الثلاثي كامل.";
+    return;
+  }
+
+  takeBtn.disabled = true;
+  takeBtn.textContent = "جاري إصدار الرقم...";
+
+  try {
+    const result = await runTransaction(ref(db, "counter/lastIssued"), n => {
+      n = n || 0;
+      if (n >= BRAND.maxTickets) return;
+      return n + 1;
+    });
+
+    if (!result.committed || !result.snapshot.val()) {
+      intro.textContent = "انتهت الأرقام المتاحة حالياً.";
+      takeBtn.style.display = "none";
+      return;
+    }
+
+    myNumber = result.snapshot.val();
+
+    localStorage.setItem("queue_number", myNumber);
+    localStorage.setItem("queue_name", fullName);
+
+    await set(ref(db, "tickets/" + myNumber), {
+      number: myNumber,
+      name: fullName,
+      status: "waiting",
+      createdAt: Date.now()
+    });
+
+    showTicket(myNumber);
+  } catch (e) {
+    console.error(e);
+    statusEl.style.display = "block";
+    statusEl.className = "status error";
+    statusEl.textContent = "صار خطأ في الاتصال. حاول مرة ثانية.";
+    takeBtn.disabled = false;
+    takeBtn.textContent = "خذ رقم";
+  }
+};
+
+async function showTicket(num){
+  myNumber = Number(num);
+
+  myNumberEl.textContent = myNumber;
+  myNameEl.textContent = localStorage.getItem("queue_name") || nameInput.value.trim();
+
+  try {
+    const s = await get(ref(db, "tickets/" + myNumber));
+
+    if (!s.exists()) {
+      resetLocalTicket();
+      return;
+    }
+
+    if (s.val().name) {
+      myNameEl.textContent = s.val().name;
+    }
+  } catch(e) {
+    console.error(e);
+  }
+
+  nameInput.style.display = "none";
+  ticketBox.style.display = "block";
+  info.style.display = "grid";
+  statusEl.style.display = "block";
+  takeBtn.style.display = "none";
+  intro.textContent = "احتفظ بهذه الصفحة مفتوحة.";
+
+  onValue(ref(db, "current"), snap => {
+    const data = snap.val() || {};
+    const now = Number(data.number || 0);
+
+    currentEl.textContent = now || "--";
+
+    const remaining = Math.max(myNumber - now - 1, 0);
+    aheadEl.textContent = now >= myNumber ? 0 : remaining;
+
+    const calledCounter = Number(data.counter || 1);
+
+    if (now === myNumber) {
+      statusEl.className = "status called";
+      statusEl.innerHTML = "🔔 حان دورك الآن <span class=\"mini-counter\">كاونتر " + calledCounter + "</span>";
+      document.title = "حان دورك";
+
+      if (navigator.vibrate) {
+        navigator.vibrate([250,100,250,100,350]);
+      }
+    } else if (now > myNumber) {
+      statusEl.className = "status called";
+      statusEl.innerHTML = "تمت مناداة رقمك <span class=\"mini-counter\">كاونتر " + calledCounter + "</span>";
+    } else {
+      statusEl.className = "status waiting";
+      statusEl.textContent = "بانتظار دورك...";
+    }
+  });
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,146 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>المالك</title><link rel="stylesheet" href="style.css"></head>
+<body>
+<main class="wrap"><section class="card">
+  <div class="brand"><img class="logo" id="logo" alt="logo"><div class="brand-name" id="brandName"></div></div>
+
+  <div id="loginBox">
+    <h1>صفحة المالك</h1>
+    <p>تسجيل دخول المالك</p>
+    <input id="email" type="email" placeholder="بريد المالك">
+    <input id="password" type="password" placeholder="كلمة المرور">
+    <button id="loginBtn">دخول</button>
+    <div id="loginStatus" class="status error" style="display:none"></div>
+    <div class="owner-only-note">البريد المسموح: ali.h.alhenabi@gmail.com</div>
+    <div class="credit">
+  <span class="icon">👨‍💻</span>
+  تم التطوير بواسطة <strong>المهندس علي الحنابي</strong>
+</div>
+  </div>
+
+  <div id="ownerBox" style="display:none">
+    <h1>إدارة الطابور</h1>
+    <button class="logout" id="logoutBtn">تسجيل خروج</button>
+
+    <div class="panel">
+      <p>عدد الكاونترات المفعلة</p>
+      <select id="enabledCounters">
+        <option value="1">كاونتر واحد</option>
+        <option value="2">كاونترين</option>
+        <option value="3">ثلاثة كاونترات</option>
+        <option value="4">أربعة كاونترات</option>
+      </select>
+      <button id="saveCountersBtn">حفظ عدد الكاونترات</button>
+    </div>
+
+    <div class="panel" style="margin-top:16px">
+      <p>تصفير اليوم يمسح كل الأرقام الحالية. للتأكيد اكتب RESET.</p>
+      <input id="resetConfirm" type="text" placeholder="اكتب RESET للتأكيد">
+      <button class="danger" id="resetBtn">تصفير اليوم</button>
+    </div>
+
+    <div id="status" class="status">جاهز</div>
+    <div class="credit">
+  <span class="icon">👨‍💻</span>
+  تم التطوير بواسطة <strong>المهندس علي الحنابي</strong>
+</div>
+  </div>
+</section></main>
+
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/11.10.0/firebase-app.js";
+import { getAuth, signInWithEmailAndPassword, onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/11.10.0/firebase-auth.js";
+import { getDatabase, ref, get, set } from "https://www.gstatic.com/firebasejs/11.10.0/firebase-database.js";
+import { firebaseConfig, BRAND, OWNER_EMAIL } from "./firebase-config.js";
+
+const app = initializeApp(firebaseConfig);
+const auth = getAuth(app);
+const db = getDatabase(app);
+
+const logoEl = document.getElementById("logo");
+const brandNameEl = document.getElementById("brandName");
+const loginBoxEl = document.getElementById("loginBox");
+const ownerBoxEl = document.getElementById("ownerBox");
+const emailEl = document.getElementById("email");
+const passwordEl = document.getElementById("password");
+const loginBtnEl = document.getElementById("loginBtn");
+const logoutBtnEl = document.getElementById("logoutBtn");
+const loginStatusEl = document.getElementById("loginStatus");
+const enabledCountersEl = document.getElementById("enabledCounters");
+const saveCountersBtnEl = document.getElementById("saveCountersBtn");
+const resetConfirmEl = document.getElementById("resetConfirm");
+const resetBtnEl = document.getElementById("resetBtn");
+const statusEl = document.getElementById("status");
+
+logoEl.src = BRAND.logoUrl;
+brandNameEl.textContent = BRAND.name;
+
+loginBtnEl.onclick = async () => {
+  loginStatusEl.style.display = "none";
+  try {
+    await signInWithEmailAndPassword(auth, emailEl.value.trim(), passwordEl.value);
+  } catch (e) {
+    loginStatusEl.style.display = "block";
+    loginStatusEl.textContent = "فشل تسجيل الدخول. تأكد من البريد وكلمة المرور.";
+  }
+};
+
+passwordEl.addEventListener("keydown", event => {
+  if (event.key === "Enter") loginBtnEl.click();
+});
+
+logoutBtnEl.onclick = () => signOut(auth);
+
+onAuthStateChanged(auth, async user => {
+  if (user && user.email === OWNER_EMAIL) {
+    loginBoxEl.style.display = "none";
+    ownerBoxEl.style.display = "block";
+
+    const snap = await get(ref(db, "settings/enabledCounters"));
+    let count = Number(snap.val() || 1);
+    if (count < 1) count = 1;
+    if (count > 4) count = 4;
+    enabledCountersEl.value = String(count);
+  } else {
+    ownerBoxEl.style.display = "none";
+    loginBoxEl.style.display = "block";
+    if (user && user.email !== OWNER_EMAIL) {
+      loginStatusEl.style.display = "block";
+      loginStatusEl.textContent = "هذا الحساب ليس حساب المالك.";
+      await signOut(auth);
+    }
+  }
+});
+
+saveCountersBtnEl.onclick = async () => {
+  const count = Number(enabledCountersEl.value || 1);
+  await set(ref(db, "settings/enabledCounters"), count);
+  statusEl.className = "status called";
+  statusEl.textContent = "تم تفعيل " + count + " كاونتر";
+};
+
+resetBtnEl.onclick = async () => {
+  if (resetConfirmEl.value.trim() !== "RESET") {
+    statusEl.className = "status error";
+    statusEl.textContent = "اكتب RESET للتأكيد";
+    return;
+  }
+
+  const now = Date.now();
+
+  await set(ref(db), {
+    counter: { lastIssued: 0, lastCalled: 0 },
+    current: { number: 0, name: "", counter: 1, updatedAt: now, callId: now },
+    counters: {},
+    tickets: {},
+    settings: { enabledCounters: Number(enabledCountersEl.value || 1) }
+  });
+
+  resetConfirmEl.value = "";
+  statusEl.className = "status called";
+  statusEl.textContent = "تم تصفير اليوم بنجاح";
+};
+</script>
+</body>
+</html>

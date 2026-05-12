@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>الأدمن</title><link rel="stylesheet" href="style.css"></head>
+<body>
+<main class="wrap"><section class="card">
+  <div class="brand"><img class="logo" id="logo" alt="logo"><div class="brand-name" id="brandName"></div></div>
+  <h1>اختيار الكاونتر</h1>
+  <p>اختر صفحة الكاونتر المطلوبة</p>
+  <div class="counter-grid">
+    <a href="counter1.html"><button class="counter-link active">كاونتر 1</button></a>
+    <a href="counter2.html"><button class="counter-link">كاونتر 2</button></a>
+    <a href="counter3.html"><button class="counter-link">كاونتر 3</button></a>
+    <a href="counter4.html"><button class="counter-link">كاونتر 4</button></a>
+  </div>
+  <div class="credit">
+  <span class="icon">👨‍💻</span>
+  تم التطوير بواسطة <strong>المهندس علي الحنابي</strong>
+</div>
+</section></main>
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/11.10.0/firebase-app.js";
+import { firebaseConfig, BRAND } from "./firebase-config.js";
+initializeApp(firebaseConfig);
+document.getElementById("logo").src = BRAND.logoUrl;
+document.getElementById("brandName").textContent = BRAND.name;
+</script>
+</body>
+</html>
